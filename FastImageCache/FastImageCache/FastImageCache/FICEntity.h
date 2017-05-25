@@ -7,9 +7,6 @@
 //
 
 #import "FICImports.h"
-@class FICImageFormat;
-
-NS_ASSUME_NONNULL_BEGIN
 
 typedef void (^FICEntityImageDrawingBlock)(CGContextRef context, CGSize contextSize);
 
@@ -26,7 +23,7 @@ typedef void (^FICEntityImageDrawingBlock)(CGContextRef context, CGSize contextS
  @discussion Within each image table, each entry is identified by an entity's UUID. Ideally, this value should never change for an entity. For example, if your entity class is a person
  model, its UUID might be an API-assigned, unchanging, unique user ID. No matter how the properties of the person change, its user ID should never change.
  */
-@property (nonatomic, copy, readonly) NSString *fic_UUID;
+@property (nonatomic, copy, readonly) NSString *imageUUID;
 
 /**
  A string that uniquely identifies an entity's source image.
@@ -34,7 +31,7 @@ typedef void (^FICEntityImageDrawingBlock)(CGContextRef context, CGSize contextS
  @discussion While `<UUID>` should be unchanging, a source image UUID might change. For example, if your entity class is a person model, its source image UUID might change every time the
  person changes their profile photo. In this case, the source image UUID might be a hash of the profile photo URL (assuming each image is given a unique URL).
  */
-@property (nonatomic, copy, readonly) NSString *fic_sourceImageUUID;
+@property (nonatomic, copy, readonly) NSString *sourceImageUUID;
 
 /**
  Returns the source image URL associated with a specific format name.
@@ -54,8 +51,7 @@ typedef void (^FICEntityImageDrawingBlock)(CGContextRef context, CGSize contextS
  @see FICImageFormat
  @see [FICImageCacheDelegate imageCache:wantsSourceImageForEntity:withFormatName:completionBlock:]
  */
-- (nullable NSURL *)fic_sourceImageURLWithFormatName:(NSString *)formatName;
-
+- (NSURL *)sourceImageURLWithFormatName:(NSString *)formatName;
 
 /**
  Returns the drawing block for a specific image and format name.
@@ -76,16 +72,6 @@ typedef void (^FICEntityImageDrawingBlock)(CGContextRef context, CGSize contextS
  
  @note This block will always be called from the serial dispatch queue used by the image cache.
  */
-- (nullable FICEntityImageDrawingBlock)fic_drawingBlockForImage:(UIImage *)image withFormatName:(NSString *)formatName;
-
-@optional
-/**
- Returns the image for a format
- 
- @param format The image format that identifies which image table is requesting the source image.
- */
-- (nullable UIImage *)fic_imageForFormat:(FICImageFormat *)format;
+- (FICEntityImageDrawingBlock)drawingBlockForImage:(UIImage *)image withFormatName:(NSString *)formatName;
 
 @end
-
-NS_ASSUME_NONNULL_END

@@ -34,7 +34,6 @@ typedef NS_ENUM(NSUInteger, FICImageFormatProtectionMode) {
  prevent the image cache from consuming too much disk space. Each `<FICImageTable>` managed by the image cache is associated with a single image format.
  */
 
-NS_ASSUME_NONNULL_BEGIN
 @interface FICImageFormat : NSObject <NSCopying>
 
 ///------------------------------
@@ -153,7 +152,7 @@ NS_ASSUME_NONNULL_BEGIN
  @discussion Fast Image Cache automatically serializes the image formats that it uses to disk. If an image format ever changes, Fast Image Cache automatically detects the change and invalidates the
  image table associated with that image format. The image table is then recreated from the updated image format.
  */
-@property (nonatomic, copy, readonly) NSDictionary<NSString*, id> *dictionaryRepresentation;
+@property (nonatomic, copy, readonly) NSDictionary *dictionaryRepresentation;
 
 ///-----------------------------------
 /// @name Initializing an Image Format
@@ -181,4 +180,3 @@ NS_ASSUME_NONNULL_BEGIN
 + (instancetype)formatWithName:(NSString *)name family:(NSString *)family imageSize:(CGSize)imageSize style:(FICImageFormatStyle)style maximumCount:(NSInteger)maximumCount devices:(FICImageFormatDevices)devices protectionMode:(FICImageFormatProtectionMode)protectionMode;
 
 @end
-NS_ASSUME_NONNULL_END

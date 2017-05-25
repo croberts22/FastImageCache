@@ -13,10 +13,8 @@
 @protocol FICEntity;
 @protocol FICImageCacheDelegate;
 
-typedef void (^FICImageCacheCompletionBlock)(id <FICEntity> _Nullable entity, NSString * _Nonnull formatName, UIImage * _Nullable image);
-typedef void (^FICImageRequestCompletionBlock)(UIImage * _Nullable sourceImage);
-
-NS_ASSUME_NONNULL_BEGIN
+typedef void (^FICImageCacheCompletionBlock)(id <FICEntity> entity, NSString *formatName, UIImage *image);
+typedef void (^FICImageRequestCompletionBlock)(UIImage *sourceImage);
 
 /**
  `FICImageCache` is the primary class for managing and interacting with the image cache. Applications using the image cache create one or more `<FICImageFormat>`
@@ -25,14 +23,6 @@ NS_ASSUME_NONNULL_BEGIN
  image format name.
  */
 @interface FICImageCache : NSObject
-
-/**
- The namespace of the image cache.
- 
- @discussion Namespace is responsible for isolation of dirrerent image cache instances on file system level. Namespace should be unique across application.
- */
-
-@property (readonly, nonatomic) NSString *nameSpace;
 
 ///----------------------------
 /// @name Managing the Delegate
@@ -47,25 +37,6 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, weak) id <FICImageCacheDelegate> delegate;
 
 ///---------------------------------------
-/// @name Creating Image Cache instances
-///---------------------------------------
-
-/**
- Returns new image cache.
- 
- @return A new instance of `FICImageCache`.
- 
- @param nameSpace The namespace that uniquely identifies current image cahce entity. If no nameSpace given, default namespace will be used.
- 
- @note Fast Image Cache can either be used as a singleton for convenience or can exist as multiple instances. 
- However, all instances of `FICImageCache` will make use same dispatch queue. To separate location on disk for storing image tables namespaces are used.
- 
- @see [FICImageCache dispatchQueue]
- */
-
-- (instancetype)initWithNameSpace:(NSString *)nameSpace;
-
-///---------------------------------------
 /// @name Accessing the Shared Image Cache
 ///---------------------------------------
 
@@ -74,7 +45,8 @@ NS_ASSUME_NONNULL_BEGIN
  
  @return A shared instance of `FICImageCache`.
  
- @note Shared instance always binded to default namespace.
+ @note Fast Image Cache can either be used as a singleton for convenience or can exist as multiple instances. However, all instances of `FICImageCache` will make use of
+ shared resources, such as the same dispatch queue and the same location on disk for storing image tables.
  
  @see [FICImageCache dispatchQueue]
  */
@@ -100,7 +72,7 @@ NS_ASSUME_NONNULL_BEGIN
  
  @note Once the image formats have been set, subsequent calls to this method will do nothing.
  */
-- (void)setFormats:(NSArray<FICImageFormat*> *)formats;
+- (void)setFormats:(NSArray *)formats;
 
 /**
  Returns an image format previously associated with the image cache.
@@ -109,7 +81,7 @@ NS_ASSUME_NONNULL_BEGIN
  
  @return An image format with the name `formatName` or `nil` if no format with that name exists.
  */
-- (nullable FICImageFormat *)formatWithName:(NSString *)formatName;
+- (FICImageFormat *)formatWithName:(NSString *)formatName;
 
 /**
  Returns all the image formats of the same family previously associated with the image cache.
@@ -118,7 +90,7 @@ NS_ASSUME_NONNULL_BEGIN
  
  @return An array of `<FICImageFormat>` objects whose family is `family` or `nil` if no format belongs to that family.
  */
-- (nullable NSArray<FICImageFormat *> *)formatsWithFamily:(NSString *)family;
+- (NSArray *)formatsWithFamily:(NSString *)family;
 
 ///-----------------------------------------------
 /// @name Storing, Retrieving, and Deleting Images
@@ -143,14 +115,14 @@ NS_ASSUME_NONNULL_BEGIN
      
      typedef void (^FICImageCacheCompletionBlock)(id <FICEntity> entity, NSString *formatName, UIImage *image)
  */
-- (void)setImage:(UIImage *)image forEntity:(id <FICEntity>)entity withFormatName:(NSString *)formatName completionBlock:(nullable FICImageCacheCompletionBlock)completionBlock;
+- (void)setImage:(UIImage *)image forEntity:(id <FICEntity>)entity withFormatName:(NSString *)formatName completionBlock:(FICImageCacheCompletionBlock)completionBlock;
 
 /**
  Attempts to synchronously retrieve an image from the image cache.
  
  @param entity The entity that uniquely identifies the source image.
  
- @param formatName The format name that uniquely identifies which image table to look in for the cached image. Must not be nil.
+ @param formatName The format name that uniquely identifies which image table to look in for the cached image.
  
  @param completionBlock The completion block that is called when the requested image is available or if an error occurs.
  
@@ -170,14 +142,14 @@ NS_ASSUME_NONNULL_BEGIN
  @note You can always rely on the completion block being called. If an error occurs for any reason, the `image` parameter of the completion block will be `nil`. See
  <[FICImageCacheDelegate imageCache:errorDidOccurWithMessage:]> for information about being notified when errors occur.
  */
-- (BOOL)retrieveImageForEntity:(id <FICEntity>)entity withFormatName:(NSString *)formatName completionBlock:(nullable FICImageCacheCompletionBlock)completionBlock;
+- (BOOL)retrieveImageForEntity:(id <FICEntity>)entity withFormatName:(NSString *)formatName completionBlock:(FICImageCacheCompletionBlock)completionBlock;
 
 /**
  Asynchronously retrieves an image from the image cache.
  
  @param entity The entity that uniquely identifies the source image.
  
- @param formatName The format name that uniquely identifies which image table to look in for the cached image. Must not be nil.
+ @param formatName The format name that uniquely identifies which image table to look in for the cached image.
  
  @param completionBlock The completion block that is called when the requested image is available or if an error occurs.
  
@@ -195,7 +167,7 @@ NS_ASSUME_NONNULL_BEGIN
  
  @see [FICImageCache retrieveImageForEntity:withFormatName:completionBlock:]
  */
-- (BOOL)asynchronouslyRetrieveImageForEntity:(id <FICEntity>)entity withFormatName:(NSString *)formatName completionBlock:(nullable FICImageCacheCompletionBlock)completionBlock;
+- (BOOL)asynchronouslyRetrieveImageForEntity:(id <FICEntity>)entity withFormatName:(NSString *)formatName completionBlock:(FICImageCacheCompletionBlock)completionBlock;
 
 /**
  Deletes an image from the image cache.
@@ -241,6 +213,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// @name Resetting the Image Cache
 ///--------------------------------
 
+- (NSUInteger)totalTableSize;
+
 /**
  Resets the image cache by deleting all image tables and their contents.
  
@@ -255,7 +229,7 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @protocol FICImageCacheDelegate <NSObject>
 
-@optional
+@required
 
 /**
  This method is called on the delegate when the image cache needs a source image.
@@ -283,7 +257,9 @@ NS_ASSUME_NONNULL_BEGIN
  the URL returned by <[FICEntity sourceImageURLWithFormatName:]>, deserializing the image data when the request completes, and finally calling this method's completion
  block to provide the image cache with the source image.
  */
-- (void)imageCache:(FICImageCache *)imageCache wantsSourceImageForEntity:(id <FICEntity>)entity withFormatName:(NSString *)formatName completionBlock:(nullable FICImageRequestCompletionBlock)completionBlock;
+- (void)imageCache:(FICImageCache *)imageCache wantsSourceImageForEntity:(id <FICEntity>)entity withFormatName:(NSString *)formatName completionBlock:(FICImageRequestCompletionBlock)completionBlock;
+
+@optional
 
 /**
  This method is called on the delegate when the image cache has received an image retrieval cancellation request.
@@ -334,5 +310,3 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)imageCache:(FICImageCache *)imageCache errorDidOccurWithMessage:(NSString *)errorMessage;
 
 @end
-
-NS_ASSUME_NONNULL_END

@@ -8,8 +8,6 @@
 
 #import "FICImports.h"
 
-NS_ASSUME_NONNULL_BEGIN
-
 @class FICImageTable;
 
 /**
@@ -59,8 +57,6 @@ NS_ASSUME_NONNULL_BEGIN
  
  @return A new image table chunk.
  */
-- (nullable instancetype)initWithFileDescriptor:(int)fileDescriptor index:(NSInteger)index length:(size_t)length;
+- (instancetype)initWithFileDescriptor:(int)fileDescriptor index:(NSInteger)index length:(size_t)length;
 
 @end
-
-NS_ASSUME_NONNULL_END

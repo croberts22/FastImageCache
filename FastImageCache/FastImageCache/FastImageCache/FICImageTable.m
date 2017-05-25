@@ -12,7 +12,6 @@
 #import "FICImageTableChunk.h"
 #import "FICImageTableEntry.h"
 #import "FICUtilities.h"
-#import <libkern/OSAtomic.h>
 
 #import "FICImageCache+FICErrorLogging.h"
 
@@ -63,8 +62,7 @@ static NSString *const FICImageTableFormatKey = @"format";
     NSMutableOrderedSet *_MRUEntries;
     NSCountedSet *_inUseEntries;
     NSDictionary *_imageFormatDictionary;
-    int32_t _metadataVersion;
-
+    
     NSString *_fileDataProtectionMode;
     BOOL _canAccessData;
 }
@@ -83,24 +81,16 @@ static NSString *const FICImageTableFormatKey = @"format";
 
 - (NSString *)tableFilePath {
     NSString *tableFilePath = [[_imageFormat name] stringByAppendingPathExtension:FICImageTableFileExtension];
-    tableFilePath = [[self directoryPath] stringByAppendingPathComponent:tableFilePath];
+    tableFilePath = [[FICImageTable directoryPath] stringByAppendingPathComponent:tableFilePath];
     
     return tableFilePath;
 }
 
 - (NSString *)metadataFilePath {
     NSString *metadataFilePath = [[_imageFormat name] stringByAppendingPathExtension:FICImageTableMetadataFileExtension];
-    metadataFilePath = [[self directoryPath] stringByAppendingPathComponent:metadataFilePath];
+    metadataFilePath = [[FICImageTable directoryPath] stringByAppendingPathComponent:metadataFilePath];
     
     return metadataFilePath;
-}
-
-- (NSString *) directoryPath {
-    NSString *directoryPath = [FICImageTable directoryPath];
-    if (self.imageCache.nameSpace) {
-        directoryPath = [directoryPath stringByAppendingPathComponent:self.imageCache.nameSpace];
-    }
-    return directoryPath;
 }
 
 #pragma mark - Class-Level Definitions
@@ -177,15 +167,7 @@ static NSString *const FICImageTableFormatKey = @"format";
         
         [self _loadMetadata];
         
-        NSString *directoryPath = [self directoryPath];
-        
         NSFileManager *fileManager = [[NSFileManager alloc] init];
-        
-        BOOL isDirectory;
-        if (self.imageCache.nameSpace && ![fileManager fileExistsAtPath:directoryPath isDirectory:&isDirectory]) {
-            [fileManager createDirectoryAtPath:directoryPath withIntermediateDirectories:YES attributes:nil error:nil];
-        }
-        
         if ([fileManager fileExistsAtPath:_filePath] == NO) {
             NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
             [attributes setValue:[_imageFormat protectionModeString] forKeyPath:NSFileProtectionKey];
@@ -207,7 +189,7 @@ static NSString *const FICImageTableFormatKey = @"format";
             NSInteger goalEntriesPerChunk = goalChunkLength / _entryLength;
             _entriesPerChunk = MAX(4, goalEntriesPerChunk);
             if ([self _maximumCount] > [_imageFormat maximumCount]) {
-                NSString *message = [NSString stringWithFormat:@"*** FIC Warning: growing desired maximumCount (%ld) for format %@ to fill a chunk (%ld)", (long)[_imageFormat maximumCount], [_imageFormat name], (long)[self _maximumCount]];
+                NSString *message = [NSString stringWithFormat:@"*** FIC Warning: growing desired maximumCount (%ld) for format %@ to fill a chunk (%d)", (long)[_imageFormat maximumCount], [_imageFormat name], [self _maximumCount]];
                 [self.imageCache _logMessage:message];
             }
             _chunkLength = (size_t)(_entryLength * _entriesPerChunk);
@@ -231,6 +213,10 @@ static NSString *const FICImageTableFormatKey = @"format";
     }
     
     return self;
+}
+
+- (instancetype)init {
+    return [self initWithFormat:nil imageCache:nil];
 }
 
 - (void)dealloc {
@@ -361,8 +347,8 @@ static NSString *const FICImageTableFormatKey = @"format";
         if (entryData != nil) {
             NSString *entryEntityUUID = FICStringWithUUIDBytes([entryData entityUUIDBytes]);
             NSString *entrySourceImageUUID = FICStringWithUUIDBytes([entryData sourceImageUUIDBytes]);
-            BOOL entityUUIDIsCorrect = entityUUID == nil || [entityUUID caseInsensitiveCompare:entryEntityUUID] == NSOrderedSame;
-            BOOL sourceImageUUIDIsCorrect = sourceImageUUID == nil || [sourceImageUUID caseInsensitiveCompare:entrySourceImageUUID] == NSOrderedSame;
+            BOOL entityUUIDIsCorrect = entityUUID == nil || [entityUUID isEqualToString:entryEntityUUID];
+            BOOL sourceImageUUIDIsCorrect = sourceImageUUID == nil || [sourceImageUUID isEqualToString:entrySourceImageUUID];
             
             NSNumber *indexNumber = [self _numberForEntryAtIndex:[entryData index]];
             @synchronized(indexNumber) {
@@ -428,16 +414,15 @@ static void _FICReleaseImageData(void *info, const void *data, size_t size) {
     if (entityUUID != nil) {
         [_lock lock];
         
-        NSInteger MRUIndex = [_MRUEntries indexOfObject:entityUUID];
-        if (MRUIndex != NSNotFound) {
-            [_MRUEntries removeObjectAtIndex:MRUIndex];
-        }
-        
         NSInteger index = [self _indexOfEntryForEntityUUID:entityUUID];
         if (index != NSNotFound) {
             [_sourceImageMap removeObjectForKey:entityUUID];
             [_indexMap removeObjectForKey:entityUUID];
             [_occupiedIndexes removeIndex:index];
+            NSInteger index = [_MRUEntries indexOfObject:entityUUID];
+            if (index != NSNotFound) {
+                [_MRUEntries removeObjectAtIndex:index];
+            }
             [self saveMetadata];
         }
         
@@ -476,8 +461,8 @@ static void _FICReleaseImageData(void *info, const void *data, size_t size) {
 
 #pragma mark - Working with Entries
 
-- (NSInteger)_maximumCount {
-    return MAX([_imageFormat maximumCount], _entriesPerChunk);
+- (int)_maximumCount {
+    return (int)MAX([_imageFormat maximumCount], _entriesPerChunk);
 }
 
 - (void)_setEntryCount:(NSInteger)entryCount {
@@ -510,29 +495,23 @@ static void _FICReleaseImageData(void *info, const void *data, size_t size) {
 // accessible and when you try to use that data. Sidestep this issue altogether
 // by using NSFileProtectionNone
 - (BOOL)canAccessEntryData {
-    if ([_fileDataProtectionMode isEqualToString:NSFileProtectionNone])
-        return YES;
-    
-    if ([_fileDataProtectionMode isEqualToString:NSFileProtectionCompleteUntilFirstUserAuthentication] && _canAccessData)
-        return YES;
-    
-    // -[UIApplication isProtectedDataAvailable] checks whether the keybag is locked or not
-    UIApplication *application = [UIApplication performSelector:@selector(sharedApplication)];
-    if (application) {
-        _canAccessData = [application isProtectedDataAvailable];
+    BOOL result = YES;
+    if ([_fileDataProtectionMode isEqualToString:NSFileProtectionComplete]) {
+        result = [[UIApplication sharedApplication] isProtectedDataAvailable];
+    } else if ([_fileDataProtectionMode isEqualToString:NSFileProtectionCompleteUntilFirstUserAuthentication]) {
+        // For "complete until first auth", if we were previously able to access data, then we'll still be able to
+        // access it. If we haven't yet been able to access data, we'll need to try until we are successful.
+        if (_canAccessData == NO) {
+            if ([[UIApplication sharedApplication] isProtectedDataAvailable]) {
+                // we are unlocked, so we're good to go.
+                _canAccessData = YES;
+            } else {
+                // we are locked, so try to access data.
+                _canAccessData = [NSData dataWithContentsOfMappedFile:_filePath] != nil;
+            }
+        }
     }
-    
-    // We have to fallback to a direct check on the file if either:
-    // - The application doesn't exist (happens in some extensions)
-    // - The keybag is locked, but the file might still be accessible because the mode is "until first user authentication"
-    if (!application || (!_canAccessData && [_fileDataProtectionMode isEqualToString:NSFileProtectionCompleteUntilFirstUserAuthentication])) {
-        int fd;
-        _canAccessData = ((fd = open([_filePath fileSystemRepresentation], O_RDONLY)) != -1);
-        if (_canAccessData)
-            close(fd);
-    }
-    
-    return _canAccessData;
+    return result;
 }
 
 - (FICImageTableEntry *)_entryDataAtIndex:(NSInteger)index {
@@ -610,7 +589,7 @@ static void _FICReleaseImageData(void *info, const void *data, size_t size) {
     }
 
     if (index >= [self _maximumCount]) {
-        NSString *message = [NSString stringWithFormat:@"FICImageTable - unable to evict entry from table '%@' to make room. New index %ld, desired max %ld", [_imageFormat name], (long)index, (long)[self _maximumCount]];
+        NSString *message = [NSString stringWithFormat:@"FICImageTable - unable to evict entry from table '%@' to make room. New index %ld, desired max %d", [_imageFormat name], (long)index, [self _maximumCount]];
         [self.imageCache _logMessage:message];
     }
     
@@ -681,61 +660,36 @@ static void _FICReleaseImageData(void *info, const void *data, size_t size) {
 #pragma mark - Working with Metadata
 
 - (void)saveMetadata {
-    @autoreleasepool {
-        [_lock lock];
-        
-        NSDictionary *metadataDictionary = [NSDictionary dictionaryWithObjectsAndKeys:
-                                            [_indexMap copy], FICImageTableIndexMapKey,
-                                            [_sourceImageMap copy], FICImageTableContextMapKey,
-                                            [[_MRUEntries array] copy], FICImageTableMRUArrayKey,
-                                            [_imageFormatDictionary copy], FICImageTableFormatKey, nil];
-
-        __block int32_t metadataVersion = OSAtomicIncrement32(&_metadataVersion);
-
-        [_lock unlock];
-        
-        static dispatch_queue_t __metadataQueue = nil;
-        static dispatch_once_t onceToken;
-        dispatch_once(&onceToken, ^{
-            __metadataQueue = dispatch_queue_create("com.path.FastImageCache.ImageTableMetadataQueue", NULL);
-        });
-        
-        dispatch_async(__metadataQueue, ^{
-            // Cancel serialization if a new metadata version is queued to be saved
-            if (metadataVersion != _metadataVersion) {
-                return;
-            }
-
-            @autoreleasepool {
-                NSData *data = [NSJSONSerialization dataWithJSONObject:metadataDictionary options:kNilOptions error:NULL];
-
-                // Cancel disk writing if a new metadata version is queued to be saved
-                if (metadataVersion != _metadataVersion) {
-                    return;
-                }
-
-                BOOL fileWriteResult = [data writeToFile:[self metadataFilePath] atomically:NO];
-                if (fileWriteResult == NO) {
-                    NSString *message = [NSString stringWithFormat:@"*** FIC Error: %s couldn't write metadata for format %@", __PRETTY_FUNCTION__, [_imageFormat name]];
-                    [self.imageCache _logMessage:message];
-                }
-            }
-        });
-    }
+    [_lock lock];
+    
+    NSDictionary *metadataDictionary = [NSDictionary dictionaryWithObjectsAndKeys:
+                                        [_indexMap copy], FICImageTableIndexMapKey,
+                                        [_sourceImageMap copy], FICImageTableContextMapKey,
+                                        [[_MRUEntries array] copy], FICImageTableMRUArrayKey,
+                                        [_imageFormatDictionary copy], FICImageTableFormatKey, nil];
+    [_lock unlock];
+    
+    static dispatch_queue_t __metadataQueue = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        __metadataQueue = dispatch_queue_create("com.path.FastImageCache.ImageTableMetadataQueue", NULL);
+    });
+    
+    dispatch_async(__metadataQueue, ^{
+        NSData *data = [NSPropertyListSerialization dataWithPropertyList:metadataDictionary format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL];
+        BOOL fileWriteResult = [data writeToFile:[self metadataFilePath] atomically:NO];
+        if (fileWriteResult == NO) {
+            NSString *message = [NSString stringWithFormat:@"*** FIC Error: %s couldn't write metadata for format %@", __PRETTY_FUNCTION__, [_imageFormat name]];
+            [self.imageCache _logMessage:message];
+        }
+    });
 }
 
 - (void)_loadMetadata {
-    NSString *metadataFilePath = [self metadataFilePath];
-    NSData *metadataData = [NSData dataWithContentsOfURL:[NSURL fileURLWithPath:metadataFilePath] options:NSDataReadingMappedAlways error:NULL];
+    NSString *metadataFilePath = [[_filePath stringByDeletingPathExtension] stringByAppendingPathExtension:FICImageTableMetadataFileExtension];
+    NSData *metadataData = [NSData dataWithContentsOfMappedFile:metadataFilePath];
     if (metadataData != nil) {
-        NSDictionary *metadataDictionary = (NSDictionary *)[NSJSONSerialization JSONObjectWithData:metadataData options:kNilOptions error:NULL];
-        
-        if (!metadataDictionary) {
-            // The image table was likely previously stored as a .plist
-            // We'll read it into memory as a .plist and later store it (during -saveMetadata) using NSJSONSerialization for performance reasons
-            metadataDictionary = (NSDictionary *)[NSPropertyListSerialization propertyListWithData:metadataData options:0 format:NULL error:NULL];
-        }
-        
+        NSDictionary *metadataDictionary = (NSDictionary *)[NSPropertyListSerialization propertyListWithData:metadataData options:0 format:NULL error:NULL];
         NSDictionary *formatDictionary = [metadataDictionary objectForKey:FICImageTableFormatKey];
         if ([formatDictionary isEqualToDictionary:_imageFormatDictionary] == NO) {
             // Something about this image format has changed, so the existing metadata is no longer valid. The image table file
